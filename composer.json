@@ -1,6 +1,6 @@
 {
-    "name": "stealth/portal",
-    "description": "StealthCore Ultra Proxy",
+    "name": "SimpleProxy",
+    "description": "SimpleProxy",
     "require": {
         "php": ">=8.2"
     },
