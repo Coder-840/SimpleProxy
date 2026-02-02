@@ -1,16 +1,12 @@
 {
-    "name": "custom/php-proxy",
-    "description": "Clean PHP Proxy with Bootstrap Frontend",
-    "type": "project",
+    "name": "stealth/portal",
+    "description": "StealthCore Ultra Proxy",
     "require": {
-        "php": ">=8.2",
-        "ext-curl": "*",
-        "ext-mbstring": "*",
-        "guzzlehttp/guzzle": "^7.0"
+        "php": ">=8.2"
     },
-    "authors": [
-        {
-            "name": "Developer"
+    "config": {
+        "allow-plugins": {
+            "php-http/discovery": true
         }
-    ]
+    }
 }
