@@ -1,5 +1,21 @@
 {
+    "name": "SimpleProxy",
+    "description": "A lightweight PHP proxy with a Bootstrap 5 frontend and persistent address bar.",
+    "type": "project",
+    "license": "MIT",
     "require": {
-        "ext-curl": "*"
-    }
+        "php": ">=7.4",
+        "ext-curl": "*",
+        "ext-mbstring": "*"
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "sort-packages": true
+    },
+    "authors": [
+        {
+            "name": "Coder-840",
+            "email": "NotProvided"
+        }
+    ]
 }
