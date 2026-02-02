@@ -112,7 +112,7 @@ function renderLanding($proxyBase) {
     ?>
     <!DOCTYPE html>
     <html>
-    <head><title>Portal</title><style>
+    <head><title>New Tab</title><style>
         body { background: #0b0e14; color: white; height: 100vh; margin: 0; display: flex; align-items: center; justify-content: center; font-family: sans-serif; }
         .glass { background: rgba(255,255,255,0.03); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 2rem; text-align: center; }
         input { background: #1a202c; border: 1px solid #333; color: white; padding: 10px; border-radius: 5px; width: 250px; }
