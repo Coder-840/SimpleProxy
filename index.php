@@ -1,179 +1,113 @@
 <?php
+// Use Guzzle if installed via composer, otherwise fall back to native cURL
+require_once __DIR__ . '/vendor/autoload.php';
+use GuzzleHttp\Client;
+
 $TEMP_DIR = 'temp';
-if (!file_exists($TEMP_DIR)) {
-    mkdir($TEMP_DIR, 0755, true);
-}
+if (!file_exists($TEMP_DIR)) { mkdir($TEMP_DIR, 0755, true); }
 
 error_reporting(0);
 
-// --- 1. SESSION CLEAR LOGIC ---
-if (isset($_REQUEST['clear']) && $_REQUEST['clear'] == 'clear') {
-    clearTemp(true);
-    header('Location: ' . $_SERVER['PHP_SELF']);
+// --- 1. SESSION MANAGEMENT ---
+if (isset($_REQUEST['clear'])) {
+    array_map('unlink', glob("$TEMP_DIR/*"));
+    header('Location: ' . explode('?', $_SERVER['PHP_SELF'])[0]);
     die();
-} else {
-    clearTemp(false);
 }
 
-// --- 2. ROUTING LOGIC ---
+$proxyUrl = (isset($_SERVER['HTTPS']) ? 'https://' : 'http://') . $_SERVER['HTTP_HOST'] . $_SERVER['PHP_SELF'];
+
+// --- 2. ROUTING ---
 if (isset($_REQUEST['url']) && !empty($_REQUEST['url'])) {
-    $url = $_REQUEST['url'];
-    $encode = (isset($_REQUEST['encode']) && $_REQUEST['encode'] == 'yes') ? 'yes' : 'no';
-    $full = (isset($_REQUEST['full']) && $_REQUEST['full'] == 'yes') ? 'yes' : 'no';
-    $fixhref = (isset($_REQUEST['fixhref']) && $_REQUEST['fixhref'] == 'yes') ? 'yes' : 'no';
-    loadPage($url, $encode, $full, $fixhref);
+    $target = $_REQUEST['url'];
+    if (!preg_match("~^https?://~i", $target)) { $target = "https://" . $target; }
+    handleProxy($target, $proxyUrl);
 } else {
-    // RENDER LANDING PAGE FRONTEND
-    renderFrontend();
+    renderLanding();
 }
 
-// --- 3. FRONTEND RENDER FUNCTION ---
-function renderFrontend() {
-    global $TEMP_DIR;
+// --- 3. THE "STEALTH" FRONTEND ---
+function renderLanding() {
     ?>
     <!DOCTYPE html>
     <html lang="en">
     <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>PHP Proxy Portal</title>
+        <meta charset="UTF-8"><title>Stealth Proxy</title>
         <link href="https://cdn.jsdelivr.net" rel="stylesheet">
         <style>
-            body { background: #f0f2f5; min-height: 100vh; display: flex; align-items: center; justify-content: center; font-family: sans-serif; }
-            .proxy-card { background: #fff; padding: 3rem; border-radius: 20px; box-shadow: 0 15px 35px rgba(0,0,0,0.1); width: 100%; max-width: 700px; }
-            .brand { color: #0d6efd; font-weight: 800; font-size: 2.5rem; text-align: center; margin-bottom: 2rem; }
+            body { background: radial-gradient(circle at center, #1b2735 0%, #090a0f 100%); height: 100vh; display: flex; align-items: center; color: white; }
+            .glass { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 40px; width: 100%; max-width: 600px; box-shadow: 0 8px 32px 0 rgba(0,0,0,0.8); }
+            .form-control { background: rgba(0,0,0,0.3); border: 1px solid #333; color: white; }
+            .form-control:focus { background: rgba(0,0,0,0.5); color: white; border-color: #0d6efd; box-shadow: none; }
+            .btn-primary { background: #0d6efd; border: none; padding: 12px 30px; font-weight: bold; }
         </style>
     </head>
     <body>
-        <div class="proxy-card">
-            <h1 class="brand">PHP Proxy</h1>
-            <form method="get" action="<?php echo $_SERVER['PHP_SELF']; ?>">
-                <div class="input-group input-group-lg mb-4">
-                    <input type="text" name="url" class="form-control" placeholder="Enter website URL (e.g., wikipedia.org)" required>
-                    <button class="btn btn-primary px-4" type="submit">Go</button>
-                </div>
-                
-                <div class="row g-3 mb-4 text-secondary">
-                    <div class="col-md-6">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" name="full" value="yes" id="full" <?php echo is_dir($TEMP_DIR) ? '' : 'disabled'; ?>>
-                            <label class="form-check-label" for="full">Proxy full resources (images/CSS)</label>
-                        </div>
+        <div class="container d-flex justify-content-center">
+            <div class="glass text-center">
+                <h1 class="mb-4">STEALTH <span class="text-primary">PROXY</span></h1>
+                <form action="" method="GET">
+                    <div class="input-group mb-3">
+                        <input type="text" name="url" class="form-control form-control-lg" placeholder="Enter URL to unblock..." required>
+                        <button class="btn btn-primary" type="submit">Unlock</button>
                     </div>
-                    <div class="col-md-6">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" name="encode" value="yes" id="encode" checked>
-                            <label class="form-check-label" for="encode">Auto-fix encoding (UTF-8)</label>
-                        </div>
+                    <div class="d-flex justify-content-center gap-3 opacity-50 small">
+                        <span>• Encrypted</span><span>• No Logs</span><span>• High Speed</span>
                     </div>
-                    <div class="col-md-6">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" name="fixhref" value="yes" id="fixhref" checked>
-                            <label class="form-check-label" for="fixhref">Rewriting links (Stay in proxy)</label>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="text-center">
-                    <button type="button" class="btn btn-link btn-sm text-danger" onclick="if(confirm('Clear all stored cookies and temp files?')){window.location.href='?clear=clear';}">Clear Session Data</button>
-                </div>
-            </form>
+                </form>
+                <a href="?clear=1" class="btn btn-link btn-sm mt-4 text-secondary text-decoration-none">Wipe Session Data</a>
+            </div>
         </div>
     </body>
     </html>
     <?php
 }
 
-// --- 4. CORE PROXY LOGIC ---
-function loadPage($targetUrl, $encode, $full, $fixhref) {
+// --- 4. THE POWERFUL REWRITE ENGINE ---
+function handleProxy($target, $proxyBase) {
     global $TEMP_DIR;
-    $localHttpProtocol = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] != 'off') ? 'https://' : 'http://';
+    $ch = curl_init($target);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36',
+        CURLOPT_ENCODING => ''
+    ]);
     
-    if (!preg_match("/^(?:https?:\\/\\/).+/i", $targetUrl)) { $targetUrl = 'http://' . $targetUrl; }
-    $targetUrl = preg_replace("/([^:\\/]+?)(\\/\\/+)/i", "$1/", $targetUrl);
-    
-    preg_match("/^(?:https?:\\/\\/)(?:.+\\/|.+)/i", $targetUrl, $m); $basicTargetUrl = $m[0];
-    preg_match("/^(?:https?:\\/\\/)((?:(?!\\/).)+)[\\/]?/i", $basicTargetUrl, $m2); $veryBasicTargetLocalUrl = $m2[1];
-    $proxyScriptUrl = $localHttpProtocol . $_SERVER['HTTP_HOST'] . $_SERVER['PHP_SELF'];
-
-    $cookieFile = $TEMP_DIR . '/CURLCOOKIE_' . urlencode($veryBasicTargetLocalUrl) . ".txt";
-    $UAChrome = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36';
-    
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $targetUrl);
-    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
-    curl_setopt($ch, CURLOPT_USERAGENT, $UAChrome);
-    curl_setopt($ch, CURLOPT_COOKIEFILE, $cookieFile);
-    curl_setopt($ch, CURLOPT_COOKIEJAR, $cookieFile);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); // Crucial for modern sites
-    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-    
-    $html = curl_exec($ch);
+    $response = curl_exec($ch);
+    $info = curl_getinfo($ch);
     curl_close($ch);
 
-    // --- RESOURCE & LINK FIXING ---
-    if ($full == 'yes') {
-        $resPattern = "/<.+?(?:src=|href=|url)['\"\\(]?((?:(?![>'\"]).)*?\\.(?:jpg|jpeg|png|gif|bmp|ico|js|css))['\"\\)]?.*?(?:\\/>|>)/i";
-        preg_match_all($resPattern, $html, $matchReses);
-        for ($i = 0; $i < count($matchReses[0]); $i++) {
-            if (empty($matchReses[1][$i])) continue;
-            $newResPath = downloadToTemp($matchReses[1][$i], $basicTargetUrl, $TEMP_DIR, $proxyScriptUrl);
-            $html = str_replace($matchReses[1][$i], $newResPath, $html);
+    $baseUrl = $info['url']; // Handle redirects
+    $parsed = parse_url($baseUrl);
+    $root = $parsed['scheme'] . '://' . $parsed['host'];
+
+    // --- HEAVY REWRITING LOGIC ---
+    // 1. Fix relative URLs to Absolute
+    $response = preg_replace_callback('/(href|src|action|url)\s*=\s*["\']([^"\']+)["\']/i', function($m) use ($root, $baseUrl) {
+        $val = $m[2];
+        if (strpos($val, 'http') !== 0 && strpos($val, 'data:') !== 0 && strpos($val, 'javascript:') !== 0) {
+            $val = ($val[0] === '/') ? $root . $val : dirname($baseUrl) . '/' . $val;
         }
-    }
+        return $m[1] . '="' . $val . '"';
+    }, $response);
 
-    if ($fixhref == 'yes') {
-        $html = preg_replace('/href=([\'"])(?!(?:https?:\/\/|javascript:))/', 'href=$1' . $basicTargetUrl . '/', $html);
-    }
+    // 2. Wrap ALL links into the Proxy
+    $response = preg_replace_callback('/href=["\'](https?:\/\/[^"\']+)["\']/i', function($m) use ($proxyBase) {
+        return 'href="' . $proxyBase . '?url=' . urlencode($m[1]) . '"';
+    }, $response);
 
-    // Rewrite links to go through proxy
-    $html = preg_replace('/href=[\'"](https?:\/\/[^\'"]+)[\'"]/', 'onclick="window.location.href=\'' . $proxyScriptUrl . '?url=\'+escape(\'$1\')+\'&encode=' . $encode . '&fixhref=' . $fixhref . '&full=' . $full . '\';return false;" href="$1"', $html);
-
-    // --- INJECT ADDRESS BAR ---
-    $navBar = '
-    <div id="proxy-toolbar" style="position:fixed;top:0;left:0;width:100%;height:45px;background:#212529;color:#fff;z-index:2147483647;display:flex;align-items:center;padding:0 15px;box-shadow:0 2px 10px rgba(0,0,0,0.3);font-family:sans-serif;">
-        <a href="' . $proxyScriptUrl . '" style="color:#0d6efd;font-weight:bold;text-decoration:none;margin-right:20px;">ProxyHome</a>
-        <form method="get" action="' . $_SERVER['PHP_SELF'] . '" style="flex-grow:1;display:flex;align-items:center;">
-            <input type="text" name="url" value="' . $targetUrl . '" style="flex-grow:1;height:28px;border-radius:4px;border:1px solid #444;background:#333;color:#fff;padding:0 10px;font-size:13px;">
-            <input type="hidden" name="encode" value="' . $encode . '"><input type="hidden" name="full" value="' . $full . '"><input type="hidden" name="fixhref" value="' . $fixhref . '">
-            <button type="submit" style="height:28px;margin-left:10px;background:#0d6efd;border:none;color:#fff;border-radius:4px;padding:0 15px;cursor:pointer;font-size:12px;">Browse</button>
+    // --- INJECT NAV BAR ---
+    $nav = '
+    <div style="position:fixed;top:0;left:0;width:100%;background:#111;border-bottom:1px solid #333;z-index:999999;display:flex;padding:8px 15px;align-items:center;font-family:sans-serif;">
+        <a href="'.$proxyBase.'" style="color:#0d6efd;font-weight:bold;text-decoration:none;margin-right:15px;">Stealth</a>
+        <form action="'.$proxyBase.'" style="flex-grow:1;display:flex;">
+            <input type="text" name="url" value="'.$baseUrl.'" style="width:100%;background:#222;border:1px solid #444;color:#eee;padding:4px 10px;border-radius:4px;font-size:12px;">
+            <button type="submit" style="background:#0d6efd;border:none;color:white;padding:4px 12px;margin-left:8px;border-radius:4px;cursor:pointer;">Go</button>
         </form>
     </div><div style="height:45px;"></div>';
 
-    header('Content-Security-Policy: upgrade-insecure-requests');
-    echo $navBar;
-    echo ($encode == 'yes') ? changeEncoding($html) : $html;
-}
-
-// --- HELPER FUNCTIONS ---
-function downloadToTemp($fileUrl, $basicTargetUrl, $tempDir, $proxyScriptUrl) {
-    if (preg_match("/^\\/\\//", $fileUrl)) { $fileUrl = 'http:' . $fileUrl; }
-    elseif (!preg_match("/^https?:/i", $fileUrl)) { $fileUrl = rtrim($basicTargetUrl, '/') . '/' . ltrim($fileUrl, '/'); }
-    
-    $ext = pathinfo(parse_url($fileUrl, PHP_URL_PATH), PATHINFO_EXTENSION) ?: 'tmp';
-    $tempFilename = md5($fileUrl) . '.' . $ext;
-    $localPath = $tempDir . '/' . $tempFilename;
-
-    if (!file_exists($localPath)) {
-        $content = @file_get_contents($fileUrl);
-        if ($content) { file_put_contents($localPath, $content); }
-        else { return $fileUrl; }
-    }
-    return dirname($proxyScriptUrl) . '/' . $localPath;
-}
-
-function clearTemp($clearCookies) {
-    global $TEMP_DIR;
-    $files = glob($TEMP_DIR . '/*');
-    foreach ($files as $file) {
-        if (strpos($file, "CURLCOOKIE_") !== false && !$clearCookies) continue;
-        @unlink($file);
-    }
-}
-
-function changeEncoding($text) {
-    $type = mb_detect_encoding($text, array('UTF-8', 'ASCII', 'GBK', 'ISO-8859-1'));
-    return ($type == 'UTF-8') ? $text : mb_convert_encoding($text, "UTF-8", $type);
+    echo $nav . $response;
 }
 ?>
