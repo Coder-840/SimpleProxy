@@ -1,9 +1,9 @@
 {
-    "name": "SimpleProxy",
+    "name": "custom/php-proxy",
     "description": "Clean PHP Proxy with Bootstrap Frontend",
     "type": "project",
     "require": {
-        "php": ">=7.4",
+        "php": ">=8.2",
         "ext-curl": "*",
         "ext-mbstring": "*",
         "guzzlehttp/guzzle": "^7.0"
@@ -14,4 +14,3 @@
         }
     ]
 }
-
