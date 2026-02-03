@@ -1,208 +1,165 @@
 <?php
-declare(strict_types=1);
 session_start();
 error_reporting(0);
 
-/* ---------------- CONFIG ---------------- */
+// --- CONFIGURATION ---
+define('SECRET_KEY', getenv('PROXY_KEY') ?: 'CHANGE_ME_IN_RAILWAY_VARS');
 
-const SECRET_KEY = 'CHANGE_ME';
-const COOKIE_DIR = '/tmp';
+$proxyBase = (isset($_SERVER['HTTPS']) ? 'https://' : 'http://') . $_SERVER['HTTP_HOST'] . $_SERVER['PHP_SELF'];
 
-$SELF = (isset($_SERVER['HTTPS']) ? 'https://' : 'http://')
-      . $_SERVER['HTTP_HOST']
-      . strtok($_SERVER['REQUEST_URI'], '?');
+// Railway uses an ephemeral filesystem; /tmp is ideal for session cookies
+$cookieFile = '/tmp/sess_' . hash('sha256', session_id() . SECRET_KEY) . '.txt';
 
-$cookieFile = COOKIE_DIR . '/proxy_' . hash('sha256', session_id() . SECRET_KEY);
-
-/* ---------------- ROUTING ---------------- */
-
-if (isset($_GET['url'])) {
-    header('Location: ' . $SELF . '?u=' . base64_encode($_GET['url']));
-    exit;
+// --- ROUTING ---
+if (isset($_GET['u'])) {
+    $target = base64_decode($_GET['u']);
+    if (!filter_var($target, FILTER_VALIDATE_URL)) {
+        die("Invalid URL");
+    }
+    handleProxy($target, $proxyBase, $cookieFile);
+} elseif (isset($_GET['url'])) {
+    header("Location: $proxyBase?u=" . base64_encode($_GET['url']));
+} elseif (isset($_GET['logout'])) {
+    if (file_exists($cookieFile)) {
+        unlink($cookieFile);
+    }
+    session_destroy();
+    header("Location: $proxyBase");
+} else {
+    renderLanding($proxyBase);
 }
 
-if (!isset($_GET['u'])) {
-    renderHome();
-    exit;
-}
+function handleProxy($target, $proxyBase, $cookieFile) {
+    if (file_exists($cookieFile)) {
+        $encrypted = file_get_contents($cookieFile);
+        $decrypted = openssl_decrypt(
+            $encrypted, 
+            'aes-256-cbc', 
+            SECRET_KEY, 
+            0, 
+            substr(hash('sha256', SECRET_KEY), 0, 16)
+        );
+        file_put_contents($cookieFile, $decrypted);
+    }
 
-$target = base64_decode($_GET['u'], true);
-if (!$target || !filter_var($target, FILTER_VALIDATE_URL)) {
-    http_response_code(400);
-    exit('Invalid URL');
-}
-
-proxy($target);
-
-/* ---------------- CORE ---------------- */
-
-function proxy(string $url): void
-{
-    global $cookieFile, $SELF;
-
-    decryptCookies();
-
-    $headers = [
-        'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0 Safari/537.36',
-        'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language: en-US,en;q=0.9',
-        'Sec-Fetch-Site: none',
-        'Sec-Fetch-Mode: navigate',
-        'Sec-Fetch-Dest: document'
-    ];
-
-    $ch = curl_init($url);
-    curl_setopt_array($ch, [
+    $ch = curl_init($target);
+    $options = [
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_HEADER         => true,
-        CURLOPT_FOLLOWLOCATION => false,
+        CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_SSL_VERIFYPEER => false,
-        CURLOPT_SSL_VERIFYHOST => false,
-        CURLOPT_HTTPHEADER     => $headers,
+        CURLOPT_USERAGENT      => $_SERVER['HTTP_USER_AGENT'],
         CURLOPT_COOKIEJAR      => $cookieFile,
         CURLOPT_COOKIEFILE     => $cookieFile,
         CURLOPT_ENCODING       => '',
-        CURLOPT_TIMEOUT        => 30
-    ]);
+        CURLOPT_AUTOREFERER    => true
+    ];
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, file_get_contents('php://input'));
+        $options[CURLOPT_POST] = true;
+        $options[CURLOPT_POSTFIELDS] = file_get_contents('php://input');
     }
 
-    $raw = curl_exec($ch);
+    curl_setopt_array($ch, $options);
+    $response = curl_exec($ch);
     $info = curl_getinfo($ch);
     curl_close($ch);
 
-    encryptCookies();
-
-    $headerSize = $info['header_size'];
-    $headersRaw = substr($raw, 0, $headerSize);
-    $body       = substr($raw, $headerSize);
-
-    if (in_array($info['http_code'], [301,302,303,307,308])) {
-        if (preg_match('/Location:\s*(.+)/i', $headersRaw, $m)) {
-            $loc = trim($m[1]);
-            if (!preg_match('#^https?://#', $loc)) {
-                $loc = resolveUrl($url, $loc);
-            }
-            header('Location: ' . $SELF . '?u=' . base64_encode($loc));
-            exit;
-        }
+    if (file_exists($cookieFile)) {
+        $raw = file_get_contents($cookieFile);
+        $encrypted = openssl_encrypt(
+            $raw, 
+            'aes-256-cbc', 
+            SECRET_KEY, 
+            0, 
+            substr(hash('sha256', SECRET_KEY), 0, 16)
+        );
+        file_put_contents($cookieFile, $encrypted);
     }
 
-    header_remove('Content-Security-Policy');
     header_remove('X-Frame-Options');
+    header_remove('Content-Security-Policy');
     header('Access-Control-Allow-Origin: *');
-    header('Content-Type: ' . ($info['content_type'] ?? 'text/plain'));
+    header('Content-Type: ' . $info['content_type']);
 
-    if (stripos($info['content_type'] ?? '', 'text/html') !== false) {
-        echo rewriteHtml($body, $url);
+    if (strpos($info['content_type'], 'text/html') !== false) {
+        echo rewriteHtml($response, $info['url'], $proxyBase);
     } else {
-        echo $body;
+        echo $response;
     }
 }
 
-/* ---------------- REWRITE ---------------- */
+function rewriteHtml($html, $realUrl, $proxyBase) {
+    $parsed = parse_url($realUrl);
+    $domain = $parsed['scheme'] . '://' . $parsed['host'];
+    
+    // Inject Base Tag
+    $html = preg_replace('/<head>/i', '<head><base href="' . $domain . '/">', $html, 1);
+    
+    // Rewrite URLs
+    $html = preg_replace_callback('/(href|src|action)=["\']([^"\']+)["\']/i', function($m) use ($proxyBase, $domain, $realUrl) {
+        $url = $m[2];
+        if (preg_match('/^(data:|#|javascript:)/i', $url)) {
+            return $m[0];
+        }
+        if (!preg_match('/^https?:\/\//i', $url)) {
+            $url = (strpos($url, '/') === 0) ? $domain . $url : rtrim(dirname($realUrl), '/') . '/' . $url;
+        }
+        return $m[1] . '="' . $proxyBase . '?u=' . base64_encode($url) . '"';
+    }, $html);
 
-function rewriteHtml(string $html, string $base): string
-{
-    global $SELF;
+    // Inject Proxy UI & JS Interceptors
+    $ui = '
+    <div style="position:fixed;top:0;left:0;width:100%;background:#0b0e14;border-bottom:1px solid #333;z-index:999999;display:flex;padding:5px 15px;align-items:center;height:40px;box-sizing:border-box;color:white;font-family:sans-serif;">
+        <a href="'.$proxyBase.'?logout=1" style="color:#00d2ff;text-decoration:none;font-weight:bold;margin-right:15px;font-size:11px;">EXIT</a>
+        <input type="text" readonly value="'.$realUrl.'" style="flex-grow:1;background:#1a202c;border:1px solid #333;color:#888;padding:4px 10px;border-radius:4px;font-size:10px;">
+    </div>
+    <div style="height:40px;"></div>
+    <script>
+    (function() {
+        const pBase = "'.$proxyBase.'?u=";
+        const encode = (u) => (typeof u === "string" && u.startsWith("http") && !u.includes("u=")) ? pBase + btoa(u) : u;
+        
+        const desc = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, "src");
+        Object.defineProperty(HTMLIFrameElement.prototype, "src", {
+            set: function(v) { desc.set.call(this, encode(v)); },
+            get: function() { return desc.get.call(this); }
+        });
 
-    $html = preg_replace_callback(
-        '/(href|src|action)=["\']([^"\']+)["\']/i',
-        function ($m) use ($base, $SELF) {
-            $u = $m[2];
-            if (preg_match('#^(data:|javascript:|#)#i', $u)) return $m[0];
-            $abs = preg_match('#^https?://#i', $u) ? $u : resolveUrl($base, $u);
-            return $m[1] . '="' . $SELF . '?u=' . base64_encode($abs) . '"';
-        },
-        $html
-    );
+        const oFetch = window.fetch;
+        window.fetch = (u, o) => oFetch(encode(u), o);
 
-    return $html . injectJS();
+        const oOpen = XMLHttpRequest.prototype.open;
+        XMLHttpRequest.prototype.open = function(m, u) {
+            return oOpen.apply(this, [m, encode(u), ...Array.from(arguments).slice(2)]);
+        };
+    })();
+    </script>';
+
+    return $html . $ui;
 }
 
-/* ---------------- JS ---------------- */
-
-function injectJS(): string
-{
-    global $SELF;
-    return <<<HTML
-<script>
-(()=> {
-  const P="{$SELF}?u=";
-  const e=u=>typeof u==="string"&&u.startsWith("http")?P+btoa(u):u;
-
-  const hook=(o,p)=>{
-    const d=Object.getOwnPropertyDescriptor(o.prototype,p);
-    if(!d||!d.set)return;
-    Object.defineProperty(o.prototype,p,{
-      set(v){d.set.call(this,e(v));},
-      get(){return d.get.call(this);}
-    });
-  };
-
-  hook(HTMLAnchorElement,"href");
-  hook(HTMLFormElement,"action");
-  hook(HTMLIFrameElement,"src");
-  hook(HTMLImageElement,"src");
-  hook(HTMLScriptElement,"src");
-
-  const f=fetch;
-  fetch=(u,o)=>f(e(u),o);
-
-  const o=XMLHttpRequest.prototype.open;
-  XMLHttpRequest.prototype.open=function(m,u){return o.call(this,m,e(u),...arguments)};
-
-  history.pushState=((p)=>function(s,t,u){return p.call(this,s,t,e(u))})(history.pushState);
-  history.replaceState=((p)=>function(s,t,u){return p.call(this,s,t,e(u))})(history.replaceState);
-
-  location.assign=((a)=>u=>a.call(location,e(u)))(location.assign);
-})();
-</script>
-HTML;
-}
-
-/* ---------------- UTILS ---------------- */
-
-function resolveUrl(string $base, string $rel): string
-{
-    $p = parse_url($base);
-    return ($p['scheme'] ?? 'http') . '://' . $p['host'] . '/' . ltrim($rel, '/');
-}
-
-function encryptCookies(): void
-{
-    global $cookieFile;
-    if (!file_exists($cookieFile)) return;
-    file_put_contents(
-        $cookieFile,
-        openssl_encrypt(file_get_contents($cookieFile), 'aes-256-cbc', SECRET_KEY, 0, substr(hash('sha256', SECRET_KEY), 0, 16))
-    );
-}
-
-function decryptCookies(): void
-{
-    global $cookieFile;
-    if (!file_exists($cookieFile)) return;
-    file_put_contents(
-        $cookieFile,
-        openssl_decrypt(file_get_contents($cookieFile), 'aes-256-cbc', SECRET_KEY, 0, substr(hash('sha256', SECRET_KEY), 0, 16))
-    );
-}
-
-function renderHome(): void
-{
-    echo <<<HTML
-<!doctype html>
+function renderLanding($proxyBase) {
+?>
+<!DOCTYPE html>
 <html>
-<body style="background:#0b0e14;color:white;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh">
-<form>
-<input name="url" placeholder="https://example.com" style="padding:10px;width:260px">
-<button>Go</button>
-</form>
+<head>
+    <title>New Tab</title>
+    <style>
+        body { background: #0b0e14; color: white; height: 100vh; margin: 0; display: flex; align-items: center; justify-content: center; font-family: sans-serif; }
+        .glass { background: rgba(255,255,255,0.03); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 2rem; text-align: center; }
+        input { background: #1a202c; border: 1px solid #333; color: white; padding: 10px; border-radius: 5px; width: 250px; }
+        button { background: #00d2ff; border: none; padding: 10px 20px; border-radius: 5px; font-weight: bold; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div class="glass">
+        <h1>Simple<span>Proxy</span></h1>
+        <form action="" method="GET">
+            <input type="text" name="url" placeholder="https://..." required>
+            <button type="submit">Surf!</button>
+        </form>
+    </div>
 </body>
 </html>
-HTML;
+<?php
 }
