@@ -3,6 +3,6 @@
   "description": "Simple PHP web proxy",
   "type": "project",
   "require": {
-    "php": "^8.1"
+    "php": "^8.2"
   }
 }
