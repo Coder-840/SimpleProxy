@@ -1,5 +1,5 @@
 {
-  "name": "SimpleProxy",
+  "name": "simpleproxy/proxy",
   "description": "Simple PHP web proxy",
   "type": "project",
   "require": {
