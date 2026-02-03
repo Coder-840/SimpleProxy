@@ -1,12 +1,8 @@
 {
-    "name": "SimpleProxy",
-    "description": "SimpleProxy",
-    "require": {
-        "php": ">=8.2"
-    },
-    "config": {
-        "allow-plugins": {
-            "php-http/discovery": true
-        }
-    }
+  "name": "SimpleProxy",
+  "description": "Simple PHP web proxy",
+  "type": "project",
+  "require": {
+    "php": "^8.1"
+  }
 }
