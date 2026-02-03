@@ -1,6 +1,7 @@
 # SimpleProxy
-
+---
 SimpleProxy is a simple, expirimental, PHP proxy. It is not finished, and may or may not be continued.
+It can fetch and display with simple websites but often struggles with complex ones.
 ### Deployment
 ---
 
